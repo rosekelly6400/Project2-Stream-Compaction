@@ -31,17 +31,15 @@ namespace StreamCompaction {
         __global__ void postScanFormat(int nOriginal, int nPowerOf2, int* odata, const int* idata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            if (idx >= nPowerOf2) return;
             int zeroBufferSize = nPowerOf2 - nOriginal;
+            if ((idx + (zeroBufferSize - 1)) >= nPowerOf2 || (idx + (zeroBufferSize - 1)) < 0) return;
 
-            if (idx == 0)
-            {
-                odata[0] = 0;
-            }
-            else {
-                odata[idx] = idata[idx + (zeroBufferSize-1)];
-            }
+            odata[idx] = idata[idx + (zeroBufferSize-1)];
+        }
 
+        __global__ void setFirstElementToZero(int n, int* odata)
+        {
+            odata[0] = 0;
         }
 
         __global__ void scan_GPU_naive(int n, int iteration, int* odata, const int* idata)
@@ -49,7 +47,7 @@ namespace StreamCompaction {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             if (idx >= n) return;
 
-            int spacing = std::pow(2 , iteration - 1);
+            int spacing = 1 << (iteration - 1);
             if (idx >= spacing)
             {
                 odata[idx] = idata[idx - spacing] + idata[idx];
@@ -65,10 +63,10 @@ namespace StreamCompaction {
          */
         void scan(int n, int *odata, const int *idata) {
             // TODO
-            int blockSize = 32;
+            int blockSize = 512;
             // include zero buffer for non power of 2 n
             int log2n = ilog2ceil(n);
-            int dataLength = std::pow(2, log2n);
+            int dataLength = 1 << log2n;
 
             int sizeInBytes = dataLength * sizeof(int);
 
@@ -100,7 +98,7 @@ namespace StreamCompaction {
                 dev_out = temp;
             }
 
-            // FIGURE OUT: why does it pass for log2n+1 instead of just log2n+1
+            // FIGURE OUT: why does it pass for log2n+1 instead of just log2n
             // ANSWER: its because I was still switching in and out after the last iteration, so I was returning the 2nd to last iteration's out as the final out
             // sum
             for (int i = 1; i <= log2n; i++)
@@ -114,11 +112,12 @@ namespace StreamCompaction {
                 }
             }
 
-            // post process to make it an exclusive scan and remove trailing zeros from non power of 2
+            //// post process to make it an exclusive scan and remove trailing zeros from non power of 2
             postScanFormat << <fullBlocksPerGrid, blockSize >> > (n, dataLength, dev_in, dev_out);
             int* temp = dev_in;
             dev_in = dev_out;
             dev_out = temp;
+            setFirstElementToZero << <1, 1 >> > (dataLength, dev_out);
 
             timer().endGpuTimer();
 
@@ -140,7 +139,7 @@ namespace StreamCompaction {
 
             for (int i = 1; i <= log2n; i++)
             {
-                int spacing = std::pow(2, i - 1);
+                int spacing = 1 << (i - 1);
                 if (idx >= spacing)
                 {
                     shared_idata[idx] = shared_idata[idx - spacing] + shared_idata[idx];
@@ -156,7 +155,7 @@ namespace StreamCompaction {
             // include zero buffer for non power of 2 n
             int blockSize = 1024;
             int log2n = ilog2ceil(n);
-            int dataLength = std::pow(2, log2n);
+            int dataLength = 1 << log2n;
             if (n < blockSize) {
                 blockSize = n;
             }

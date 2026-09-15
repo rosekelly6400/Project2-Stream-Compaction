@@ -31,8 +31,8 @@ namespace StreamCompaction {
         __global__ void postScanFormat(int nOriginal, int nPowerOf2, int* odata, const int* idata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            if (idx >= nPowerOf2) return;
             int zeroBufferSize = nPowerOf2 - nOriginal;
+            if (idx + zeroBufferSize >= nPowerOf2) return;
 
             if (idx == 0)
             {
@@ -44,44 +44,24 @@ namespace StreamCompaction {
 
         }
 
-        __global__ void sweepUp(int n, int iteration, int spacing, int log2n, int* odata)
+        __global__ void sweepUp(int n, int iteration, int twoPowD, int spacing, int log2n, int* odata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             idx = idx * spacing;
-            if (idx >= n) return;
+            if (idx + spacing - 1 >= n) return;
 
-            int twoPowD = std::pow(2, iteration);
             odata[idx + spacing - 1] += odata[idx + twoPowD - 1];
 
         }
 
-        __global__ void sweepUp_indata(int n, int iteration, int log2n, int* odata, int* idata)
-        {
-            unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            int spacing = std::pow(2, iteration + 1);
-            idx = idx * spacing;
-            if (idx >= n) return;
-
-            int twoPowD = std::pow(2, iteration);
-            odata[idx + spacing - 1] = idata[idx + spacing - 1] + idata[idx + twoPowD - 1];
-
-        }
-
-        __global__ void sweepDown(int n, int iteration, int spacing, int log2n, int* odata)
+        __global__ void sweepDown(int n, int iteration, int twoPowD, int spacing, int log2n, int* odata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             idx = idx * spacing;
             if (idx >= n) return;
 
-            int twoPowD = std::pow(2, iteration);
             int temp = odata[idx + twoPowD - 1];
-            if (iteration == log2n -1 && idx + twoPowD - 1 == n - 1) {
-                temp = 0;
-            }
             odata[idx + twoPowD - 1] = odata[idx + spacing - 1];
-            if (iteration == log2n - 1 && idx + spacing - 1 == n - 1) {
-                odata[idx + twoPowD - 1] = 0;
-            }
             odata[idx + spacing - 1] += temp;
         }
 
@@ -96,10 +76,10 @@ namespace StreamCompaction {
          */
         void scan(int n, int *odata, const int *idata) {
             // TODO
-            int blockSize = 32;
+            int blockSize = 512;
             // include zero buffer for non power of 2 n
             int log2n = ilog2ceil(n);
-            int dataLength = std::pow(2, log2n);
+            int dataLength = 1 << log2n;
             int sizeInBytes = dataLength * sizeof(int);
 
             int* dev_in;
@@ -131,17 +111,19 @@ namespace StreamCompaction {
             // up-sweep
             for (int i = 0; i <= log2n-1; i++)
             {
-                int spacing = std::pow(2, i + 1);
+                int spacing = 1 << ( i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
-                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, spacing, log2n, dev_out);
+                int twoPowD = 1 << i;
+                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_out);
             }
             setLastElementToZero << <1, 1 >> > (dataLength, dev_out);
             // down-sweep
             for (int i = log2n - 1; i >= 0; i--)
             {
-                int spacing = std::pow(2, i + 1);
+                int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
-                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, spacing, log2n, dev_out);
+                int twoPowD = 1 << i;
+                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_out);
             }
             // post process to make it an exclusive scan and remove trailing zeros from non power of 2
             if (n != dataLength) {
@@ -174,7 +156,7 @@ namespace StreamCompaction {
             int blockSize = 32;
             // include zero buffer for non power of 2 n
             int log2n = ilog2ceil(n);
-            int dataLength = std::pow(2, log2n);
+            int dataLength = 1 << log2n;
             int sizeInBytes = dataLength * sizeof(int);
 
             int* dev_in;
@@ -212,9 +194,10 @@ namespace StreamCompaction {
             StreamCompaction::Common::copyBuffer << <fullBlocksPerGrid, blockSize >> > (dataLength, dev_indices, dev_boolMap);
             for (int i = 0; i <= log2n - 1; i++)
             {
-                int spacing = std::pow(2, i + 1);
+                int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength/ spacing)+blockSize - 1) / blockSize);
-                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, spacing, log2n, dev_indices);
+                int twoPowD = 1 << i;
+                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_indices);
             }
             cudaMemcpy(&numValidElements, &(dev_indices[dataLength - 1]), sizeof(int), cudaMemcpyDeviceToHost);
             
@@ -222,9 +205,10 @@ namespace StreamCompaction {
             // down-sweep
             for (int i = log2n - 1; i >= 0; i--)
             {
-                int spacing = std::pow(2, i + 1);
+                int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
-                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, spacing, log2n, dev_indices);
+                int twoPowD = 1 << i;
+                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_indices);
             }
 
             //SCATTER
@@ -240,6 +224,12 @@ namespace StreamCompaction {
             cudaFree(dev_indices);
 
             return numValidElements;
+        }
+
+
+        // EXTRA CREDIT
+        void scanShared(int n, int* odata, const int* idata) {
+            
         }
     }
 }
