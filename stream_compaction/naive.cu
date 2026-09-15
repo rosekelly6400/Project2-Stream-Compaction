@@ -63,7 +63,7 @@ namespace StreamCompaction {
          */
         void scan(int n, int *odata, const int *idata) {
             // TODO
-            int blockSize = 512;
+            int blockSize = 1024;
             // include zero buffer for non power of 2 n
             int log2n = ilog2ceil(n);
             int dataLength = 1 << log2n;

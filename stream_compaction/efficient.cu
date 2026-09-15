@@ -44,7 +44,7 @@ namespace StreamCompaction {
 
         }
 
-        __global__ void sweepUp(int n, int iteration, int twoPowD, int spacing, int log2n, int* odata)
+        __global__ void sweepUp(int n, int twoPowD, int spacing, int* odata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             idx = idx * spacing;
@@ -54,7 +54,7 @@ namespace StreamCompaction {
 
         }
 
-        __global__ void sweepDown(int n, int iteration, int twoPowD, int spacing, int log2n, int* odata)
+        __global__ void sweepDown(int n, int twoPowD, int spacing, int* odata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             idx = idx * spacing;
@@ -76,7 +76,7 @@ namespace StreamCompaction {
          */
         void scan(int n, int *odata, const int *idata) {
             // TODO
-            int blockSize = 512;
+            int blockSize = 32;
             // include zero buffer for non power of 2 n
             int log2n = ilog2ceil(n);
             int dataLength = 1 << log2n;
@@ -114,7 +114,7 @@ namespace StreamCompaction {
                 int spacing = 1 << ( i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
                 int twoPowD = 1 << i;
-                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_out);
+                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, twoPowD, spacing, dev_out);
             }
             setLastElementToZero << <1, 1 >> > (dataLength, dev_out);
             // down-sweep
@@ -123,7 +123,7 @@ namespace StreamCompaction {
                 int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
                 int twoPowD = 1 << i;
-                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_out);
+                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, twoPowD, spacing, dev_out);
             }
             // post process to make it an exclusive scan and remove trailing zeros from non power of 2
             if (n != dataLength) {
@@ -197,7 +197,7 @@ namespace StreamCompaction {
                 int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength/ spacing)+blockSize - 1) / blockSize);
                 int twoPowD = 1 << i;
-                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_indices);
+                sweepUp << <currIterBlocksPerGrid, blockSize >> > (dataLength, twoPowD, spacing, dev_indices);
             }
             cudaMemcpy(&numValidElements, &(dev_indices[dataLength - 1]), sizeof(int), cudaMemcpyDeviceToHost);
             
@@ -208,7 +208,7 @@ namespace StreamCompaction {
                 int spacing = 1 << (i + 1);
                 dim3 currIterBlocksPerGrid(((dataLength / spacing) + blockSize - 1) / blockSize);
                 int twoPowD = 1 << i;
-                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, i, twoPowD, spacing, log2n, dev_indices);
+                sweepDown << <currIterBlocksPerGrid, blockSize >> > (dataLength, twoPowD, spacing, dev_indices);
             }
 
             //SCATTER
