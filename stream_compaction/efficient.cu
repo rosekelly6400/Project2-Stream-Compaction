@@ -382,11 +382,11 @@ namespace StreamCompaction {
                 }
             }
             // 4. Add each element back to its section (or next section if inclusive scan)
-            StreamCompaction::Common::addBlockSumsBack << <fullBlocksPerGrid, blockSize >> > (n, numBlocks, blockSize, dev_out, dev_blockSumsScanned);
+            StreamCompaction::Common::addBlockSumsBack << <fullBlocksPerGrid, blockSize >> > (dataLength, numBlocks, blockSize, dev_out, dev_blockSumsScanned);
             int* temp = dev_in;
             dev_in = dev_out;
             dev_out = temp;
-            makeExclusive << <fullBlocksPerGrid, blockSize >> > (n, dev_out, dev_in);
+            makeExclusive << <fullBlocksPerGrid, blockSize >> > (dataLength, dev_out, dev_in);
 
             // post process to make it an exclusive scan and remove trailing zeros from non power of 2
             if (n != dataLength) {
