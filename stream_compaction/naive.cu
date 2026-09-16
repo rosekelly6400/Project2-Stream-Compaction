@@ -32,7 +32,7 @@ namespace StreamCompaction {
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
             int zeroBufferSize = nPowerOf2 - nOriginal;
-            if ((idx + (zeroBufferSize - 1)) >= nPowerOf2 || (idx + (zeroBufferSize - 1)) < 0) return;
+            if ((idx + (zeroBufferSize - 1)) >= nPowerOf2 || (idx + (zeroBufferSize - 1)) < 0 || idx >= nPowerOf2) return;
 
             odata[idx] = idata[idx + (zeroBufferSize-1)];
         }
@@ -154,24 +154,33 @@ namespace StreamCompaction {
         __global__ void scan_GPU_naive_shared_multiBlock(int n, int log2n, int numBlocks, int blockSize, int* odata, const int* idata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            if (idx >= n) return;
-
             unsigned sharedIdx = threadIdx.x;
+            if (idx >= n || sharedIdx >= blockSize) return;
+            int outHalfIndex = 0;
+            int inHalfIndex = 1;
             extern __shared__ int shared_idata[];
-            shared_idata[sharedIdx] = idata[idx];
+            shared_idata[outHalfIndex* blockSize + sharedIdx] = idata[idx];
+            //shared_idata[inHalfIndex*n + sharedIdx] = 0;
             __syncthreads();
 
             for (int i = 1; i <= log2n; i++)
             {
+                outHalfIndex = 1 - outHalfIndex;
+                inHalfIndex = 1 - outHalfIndex;
                 int spacing = 1 << (i - 1);
-                if (sharedIdx >= spacing)
+                if (sharedIdx >= spacing && sharedIdx < blockSize)
                 {
-                    shared_idata[sharedIdx] = shared_idata[sharedIdx - spacing] + shared_idata[sharedIdx];
+                    // TRY PING PONGING INSTEAD OF THIS???
+                    shared_idata[outHalfIndex * blockSize + sharedIdx] = shared_idata[inHalfIndex * blockSize + sharedIdx - spacing] + shared_idata[inHalfIndex * blockSize + sharedIdx];
+                }
+                else
+                {
+                    shared_idata[outHalfIndex * blockSize + sharedIdx] = shared_idata[inHalfIndex * blockSize + sharedIdx];
                 }
                 // CHANGE ABOVE SO IT RUNS HALF THE THREADS ??
                 __syncthreads();
             }
-            odata[idx] = shared_idata[sharedIdx];
+            odata[idx] = shared_idata[outHalfIndex * blockSize + sharedIdx];
         }
 
         __global__ void copyBlockSumsToOutData(int numBlocks, int blockSize, int* odata, const int* idata)
@@ -240,8 +249,9 @@ namespace StreamCompaction {
             }*/
             int sharedMemSizeInBytes = blockSize * sizeof(int);
             int log2BlockSize = ilog2ceil(blockSize);
-            scan_GPU_naive_shared_multiBlock << <fullBlocksPerGrid, blockSize, sharedMemSizeInBytes >> > (dataLength, log2BlockSize, numBlocks, blockSize, dev_out, dev_in);
-
+            cudaDeviceSynchronize();
+            scan_GPU_naive_shared_multiBlock << <fullBlocksPerGrid, blockSize, sharedMemSizeInBytes*2 >> > (dataLength, log2BlockSize, numBlocks, blockSize, dev_out, dev_in);
+            cudaDeviceSynchronize();
             // 2. Write total sum of each block into a new array
             dim3 blockSumsBlocksPerGrid((numBlocks + blockSize - 1) / blockSize);
             StreamCompaction::Common::copyBlockSums << <blockSumsBlocksPerGrid, blockSize >> > (numBlocks, blockSize, dev_blockSums, dev_out);

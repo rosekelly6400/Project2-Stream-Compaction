@@ -11,5 +11,7 @@ namespace StreamCompaction {
         int compact(int n, int *odata, const int *idata);
 
         void scanShared(int n, int* odata, const int* idata);
+
+        int compactShared(int n, int* odata, const int* idata);
     }
 }
