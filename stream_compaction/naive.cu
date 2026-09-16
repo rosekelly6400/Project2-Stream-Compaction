@@ -174,25 +174,6 @@ namespace StreamCompaction {
             odata[idx] = shared_idata[sharedIdx];
         }
 
-        __global__ void copyBlockSums(int numBlocks, int blockSize, int* odata, const int* idata)
-        {
-            unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            unsigned originalBufferIdx = ((idx+1)* blockSize) - 1;
-            if (idx >= numBlocks) return;
-
-            odata[idx] = idata[originalBufferIdx];
-        }
-
-        __global__ void addBlockSumsBack(int n, int numBlocks, int blockSize, int* odata, const int* blockSums)
-        {
-            unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
-            // subtract 1 for inclusive scan since nothing gets added to first block
-            unsigned blockSumIdx = (idx / blockSize)-1;
-            if (idx >= n || blockSumIdx < 0 || blockSumIdx >= numBlocks) return;
-
-            odata[idx] += blockSums[blockSumIdx];
-        }
-
         __global__ void copyBlockSumsToOutData(int numBlocks, int blockSize, int* odata, const int* idata)
         {
             unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -207,8 +188,8 @@ namespace StreamCompaction {
             int blockSize = 1024;
             int log2n = ilog2ceil(n);
             int dataLength = 1 << log2n;
-            if (n < blockSize) {
-                blockSize = n;
+            if (dataLength < blockSize) {
+                blockSize = dataLength;
             }
 
             int sizeInBytes = dataLength * sizeof(int);
@@ -263,7 +244,7 @@ namespace StreamCompaction {
 
             // 2. Write total sum of each block into a new array
             dim3 blockSumsBlocksPerGrid((numBlocks + blockSize - 1) / blockSize);
-            copyBlockSums << <blockSumsBlocksPerGrid, blockSize >> > (numBlocks, blockSize, dev_blockSums, dev_out);
+            StreamCompaction::Common::copyBlockSums << <blockSumsBlocksPerGrid, blockSize >> > (numBlocks, blockSize, dev_blockSums, dev_out);
             // 3. Exclusive scan that array (or inclusive scan and ignore last element and add to next section)
             int blockSumsSharedMemSizeInBytes = numBlocks * sizeof(int);
             int log2NumBlocks = ilog2ceil(numBlocks);
@@ -278,7 +259,7 @@ namespace StreamCompaction {
                 }
             }
             // 4. Add each element back to its section (or next section if inclusive scan)
-            addBlockSumsBack << <fullBlocksPerGrid, blockSize >> > (n, numBlocks, blockSize, dev_out, dev_blockSumsScanned);
+            StreamCompaction::Common::addBlockSumsBack << <fullBlocksPerGrid, blockSize >> > (n, numBlocks, blockSize, dev_out, dev_blockSumsScanned);
 
             // post process to make it an exclusive scan and remove trailing zeros from non power of 2
             postScanFormat << <fullBlocksPerGrid, blockSize >> > (n, dataLength, dev_in, dev_out);
@@ -294,6 +275,8 @@ namespace StreamCompaction {
 
             cudaFree(dev_in);
             cudaFree(dev_out);
+            cudaFree(dev_blockSums);
+            cudaFree(dev_blockSumsScanned);
         }
     }
 }

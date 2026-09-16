@@ -39,6 +39,10 @@ namespace StreamCompaction {
 
         __global__ void copyBuffer(int n, int* odata, int* idata);
 
+        __global__ void copyBlockSums(int numBlocks, int blockSize, int* odata, const int* idata);
+
+        __global__ void addBlockSumsBack(int n, int numBlocks, int blockSize, int* odata, const int* blockSums);
+
         /**
         * This class is used for timing the performance
         * Uncopyable and unmovable

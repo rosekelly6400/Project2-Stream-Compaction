@@ -57,5 +57,25 @@ namespace StreamCompaction {
 
             odata[idx] = idata[idx];
         }
+
+
+        __global__ void copyBlockSums(int numBlocks, int blockSize, int* odata, const int* idata)
+        {
+            unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+            unsigned originalBufferIdx = ((idx + 1) * blockSize) - 1;
+            if (idx >= numBlocks) return;
+
+            odata[idx] = idata[originalBufferIdx];
+        }
+
+        __global__ void addBlockSumsBack(int n, int numBlocks, int blockSize, int* odata, const int* blockSums)
+        {
+            unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+            // subtract 1 for inclusive scan since nothing gets added to first block
+            unsigned blockSumIdx = (idx / blockSize) - 1;
+            if (idx >= n || blockSumIdx < 0 || blockSumIdx >= numBlocks) return;
+
+            odata[idx] += blockSums[blockSumIdx];
+        }
     }
 }
