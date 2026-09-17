@@ -13,7 +13,7 @@ CUDA Stream Compaction
 * https://docs.nvidia.com/cuda/archive/12.1.0/thrust/index.html
 
 ### Features
-* CPU Scan and Stream Compaction: Scan by equentially sum buffer to generate prefix scanned buffer. Implemented stream compaction via brute force approach and using CPU scan.
+* CPU Scan and Stream Compaction: Scan by sequentially summing buffer to generate prefix scanned buffer. Implemented stream compaction via brute force CPU approach and using CPU scan.
 * Naive GPU Scan and Stream Compaction: Scan by summing elements $2^i$ space apart for $\log_2 n$ iterations. Implemented stream compaction using naive scan.
 * Work Efficient Scan and Stream Compaction: Scan by performing up-sweep and down-sweep resulting in $n$ add operations instead of the $n \log_2 n$ add operations required for the naive GPU approach.
 
