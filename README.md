@@ -24,6 +24,8 @@ CUDA Stream Compaction
 
 ![](img/scangraph.png)
 
+NOTE: The graph only shows up to 33554432 to allow the shape of the curve in lower numbers of elements to be visible.
+
 | # of Elements	| CPU |	GPU Naive	| GPU Naive Shared Mem |	Work Efficient |	Work Efficient Shared Mem |	Thrust  |
 | ------------- | ------------- | ------------- | ------------- | ------------- |------------- | ------------- |
 |32768	|0.047	|0.300672|	0.227616|	0.233568|	0.131968|	0.988544|
@@ -34,6 +36,9 @@ CUDA Stream Compaction
 |134217728|	196.692|	124.095|	23.634|	42.9461|	21.9942	|6.71789|
 
 ![](img/streamcompactgraph.png)
+
+NOTE: The graph only shows up to 33554432 to allow the shape of the curve in lower numbers of elements to be visible.
+
 | # of Elements	| CPU No Scan | CPU With Scan |	Work Efficient |	Work Efficient Shared Mem |	Thrust  |
 | ------------- | ------------- | ------------- | ------------- | ------------- |------------- | 
 |32768	|0.0711|	0.1021|	0.376992|	0.119168|	0.107232|
@@ -53,10 +58,11 @@ The ranking for overall performance of my implementations for Scan is as follows
 
 The official Thrust implementation still surpassed all of my implementations for roughly any numbers of elements greater than 10 million.
 
-In general the performance comparisons meet expectations. The GPU implementations take advantage or parallelization and thus are faster than CPU scanning and stream compaction. The work efficient scan is faster than the naive GPU approach since it has fewer add operations ($n$ vs $n \log_2 n$ as noted above). The shared memory implementations of both GPU naive and work efficient are faster than their original counterparts due to far fewer global memory reads. What is notable, however, is that the naive shared memory scan approach is faster than work efficient approach, and relatively close in speed to the work efficient shared memory scan approach. This indicates that the latency due to making global memory reads is likely the largest bottleneck for the original scan methods. This is further discussed in a section below.
+In general the performance comparisons meet expectations. The GPU implementations take advantage or parallelization and thus are faster than CPU scanning and stream compaction. The work efficient scan is faster than the naive GPU approach since it has fewer add operations ($n$ vs $n \log_2 n$ as noted above). The shared memory implementations of both GPU naive and work efficient are faster than their original counterparts due to far fewer global memory reads. What is notable, however, is that the naive shared memory scan approach is faster than the global memory work efficient approach, and relatively close in speed to the work efficient shared memory scan approach. This indicates that the latency due to making global memory reads is likely the largest bottleneck for the original scan methods. Bottlenecks are further discussed in a section below.
 
 #### Block Size Optimization for Each Approach
-  * I optimized my block sizes for each implementation by looking at the nsight compute report when just that implementation was running and checking the times given in the program output. I ran the program with `2^25` elements when comparing times as this fairly large number gave me more consistent timing data. 
+
+I optimized my block sizes for each implementation by looking at the Nsight Compute report when just that implementation was running and checking the times given in the program output. I ran the program with `2^25` elements when comparing times as this fairly large number gave me more consistent timing data. 
   
   * For the naive implementation, I saw the best performance with a block size of 1024. This had the highest Memory Throughput and Compute Throughput in Nsight Compute compared to other sizes. This makes sense as the larger block size may allow the scheduler to hide latency from the many global memory reads with other warps.
 
@@ -66,9 +72,9 @@ In general the performance comparisons meet expectations. The GPU implementation
 
 
 #### Performance Bottlenecks
-  * For the naive implementation, Compute Throughput was fairly low (~10%) while memory throughput was high (~94%). This indicates memory I/O is the bottleneck since the compute throughput is likely lower due to wiating around for memory reads. This fits with the naive implementation since it relies heavily on global memory reads.
+  * For the naive implementation, compute throughput in Nsight Compute was fairly low (~10%) while memory throughput was high (~94%). This indicates memory I/O is the bottleneck since the compute throughput is likely lower due to wiating around for memory reads. This fits with the naive implementation since it relies heavily on global memory reads.
 
-  * For the work efficient implementation, the Compute Throughput was even lower (~5%) while memory throughput was only slightly lower (~92%). This similarly indicates a memory I/O bottleneck. The global memory work efficient approach also makes many many global memory reads. My work efficient compact also has additional device buffers other than the the in and out buffers, as well as kernels to copy and scatter between buffers which requires more global memory reads. Additionally, the work efficient implementation should have fewer computations than the naive approach, so proportionally less time may be spent on compute rather than memory fetching.
+  * For the work efficient implementation, the compute throughput was even lower (~5%) while memory throughput was only slightly lower (~92%). This similarly indicates a memory I/O bottleneck. The global memory work efficient approach also makes many many global memory reads. My work efficient compact also has additional device buffers other than the the in and out buffers, as well as kernels to copy and scatter between buffers which requires more global memory reads. Additionally, the work efficient implementation should have fewer computations than the naive approach, so proportionally less time may be spent on compute rather than memory fetching.
 
 
 #### Thrust Implementation Analysis From Nsight Systems Timeline
